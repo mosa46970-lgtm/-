@@ -1,0 +1,37 @@
+{
+  "name": "js",
+  "version": "1.0.0",
+  "description": "",
+  "main": "sharik.js",
+  "scripts": {
+    "start": "node sharik.js",
+    "watch": "nodemon --ext *",
+    "sync:skill-bank": "node scripts/strip-skill-test-bank.js",
+    "loadtest:whiteboard": "node scripts/load-test-whiteboard.js",
+    "test:whiteboard:readiness": "node scripts/test-whiteboard-readiness.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1043.0",
+    "@aws-sdk/s3-request-presigner": "^3.1043.0",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.4.1",
+    "nodemailer": "^8.0.11",
+    "redis": "^5.12.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "terser": "^5.49.0"
+  }
+}
