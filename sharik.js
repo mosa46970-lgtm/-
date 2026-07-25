@@ -737,11 +737,13 @@ app.post("/api/register", async (req, res) => {
     if (existing) {
       return res.status(400).json({ error: "هذا البريد مسجل بالفعل" });
     }
+    const role = email.toLowerCase().trim() === "sharik@gmail.com" ? "super_admin" : "user";
     const user = new User({
       username1: username1.trim(),
       username2: username2.trim(),
       email: email.toLowerCase().trim(),
       password: password,
+      role: role,
     });
     await user.save();
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
@@ -774,6 +776,9 @@ app.post("/api/login", async (req, res) => {
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ error: "البريد الإلكتروني أو كلمة المرور غير صحيحة" });
+    }
+    if (user.email.toLowerCase().trim() === "sharik@gmail.com" && user.role !== "super_admin") {
+      user.role = "super_admin";
     }
     user.lastLoginAt = new Date();
     if (ADMIN_ROLES.includes(user.role)) user.lastAdminLoginAt = new Date();
