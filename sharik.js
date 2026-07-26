@@ -3696,8 +3696,98 @@ app.get("/api/ai/skill-recommendations", authMiddleware, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════
+// PUBLIC PROFILE & SHAREABLE LINK API (No Auth Required)
+// ═══════════════════════════════════════════════
+app.get("/api/public-profile/:identifier", async (req, res) => {
+  try {
+    const idParam = String(req.params.identifier || "").trim().toLowerCase();
+    let user = await User.findOne({
+      $or: [
+        { email: idParam },
+        { username1: new RegExp(`^${idParam}$`, "i") },
+        { username2: new RegExp(`^${idParam}$`, "i") }
+      ]
+    }).select("-password -resetPasswordToken -resetPasswordExpires").lean();
+
+    if (!user) return res.status(404).json({ error: "المستخدم غير موجود" });
+
+    const shareUrl = `${process.env.APP_URL || "https://sharij-532a3.web.app"}/app/public-profile.html?email=${encodeURIComponent(user.email)}`;
+
+    res.json({
+      user: {
+        username: user.username1 || user.username2 || user.email.split("@")[0],
+        email: user.email,
+        avatar: user.avatar,
+        bio: user.bio,
+        country: user.country,
+        languages: user.languages,
+        learnSkills: user.learnSkills,
+        teachSkills: user.teachSkills,
+        verifiedSkills: user.verifiedSkills,
+        completedSessions: user.completedSessions || 0,
+        gamifyPoints: user.gamifyPoints || 0,
+        gamifyLevel: user.gamifyLevel || "عضو شارك",
+        dailyStreak: user.dailyStreak || 0,
+        reviews: user.reviews || [],
+        isVerified: user.isVerified || false
+      },
+      shareUrl
+    });
+  } catch (err) {
+    res.status(500).json({ error: "خطأ في جلب الملف الشخصي العام" });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// WEB PUSH NOTIFICATIONS API
+// ═══════════════════════════════════════════════
+app.get("/api/push/public-key", (req, res) => {
+  res.json({
+    publicKey: process.env.VAPID_PUBLIC_KEY || "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-NjvKeyPublicSharik2026SecureKeyHere"
+  });
+});
+
+app.post("/api/push/subscribe", authMiddleware, async (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription) return res.status(400).json({ error: "بيانات الاشتراك مطلوبة" });
+
+    await User.findByIdAndUpdate(req.userId, { pushSubscription: subscription });
+    res.json({ success: true, message: "تم تفعيل الإشعارات الفورية بنجاح" });
+  } catch (err) {
+    res.status(500).json({ error: "خطأ في حفظ اشتراك الإشعارات" });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// GOOGLE CALENDAR LINK BUILDER API
+// ═══════════════════════════════════════════════
+app.post("/api/calendar/google-url", authMiddleware, (req, res) => {
+  try {
+    const { title, details, location, startAt, durationMinutes = 60 } = req.body;
+    const start = new Date(startAt || Date.now());
+    const end = new Date(start.getTime() + durationMinutes * 60000);
+
+    const fmt = (d) => d.toISOString().replace(/-|:|\.\d\d\d/g, "");
+    const dates = `${fmt(start)}/${fmt(end)}`;
+
+    const url = new URL("https://calendar.google.com/calendar/render");
+    url.searchParams.set("action", "TEMPLATE");
+    url.searchParams.set("text", title || "جلسة تبادل مهارات - شارك");
+    url.searchParams.set("details", details || "جلسة تعليمية عبر منصة شارك (https://sharij-532a3.web.app)");
+    url.searchParams.set("location", location || "غرف المحادثة واللوحة المباشرة في منصة شارك");
+    url.searchParams.set("dates", dates);
+
+    res.json({ googleCalendarUrl: url.toString() });
+  } catch (err) {
+    res.status(500).json({ error: "خطأ في إنشاء رابط Google Calendar" });
+  }
+});
+
+// ═══════════════════════════════════════════════
 // COMMUNITY FEED APIs
 // ═══════════════════════════════════════════════
+
 
 app.get("/api/feed", authMiddleware, async (req, res) => {
   try {
@@ -4244,153 +4334,9 @@ app.put("/api/notification-preferences", authMiddleware, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════
-// ADMIN DASHBOARD ENDPOINTS
+// LEGACY ADMIN ENDPOINTS REMOVED (Using RBAC routes in main section)
 // ═══════════════════════════════════════════════
 
-const adminMiddleware = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "غير مصرح — يتطلب توكن الإدارة" });
-    }
-    const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await User.findById(decoded.id).select("-password").lean();
-    if (!user) return res.status(401).json({ error: "المستخدم غير موجود" });
-
-    const isAdmin = ADMIN_ROLES.includes(user.role) || (user.email && user.email.toLowerCase() === "sharik@gmail.com");
-    if (!isAdmin) {
-      return res.status(403).json({ error: "غير مصرح — هذه الصفحة خاصة بالإدارة فقط" });
-    }
-    req.user = user;
-    req.userId = user._id;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: "توكن غير صالحة" });
-  }
-};
-
-// 1. Admin Stats Endpoint
-app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
-  try {
-    const totalUsers = await User.countDocuments();
-    const activeUsers = await User.countDocuments({ status: { $ne: "banned" } });
-    const bannedUsers = await User.countDocuments({ status: "banned" });
-    const totalSessions = await Session.countDocuments();
-    const totalMatches = await Match.countDocuments();
-    const totalMessages = await Message.countDocuments();
-
-    const users = await User.find().select("learnSkills teachSkills").lean();
-    const learnSkillCounts = {};
-    const teachSkillCounts = {};
-
-    users.forEach(u => {
-      (u.learnSkills || []).forEach(s => learnSkillCounts[s] = (learnSkillCounts[s] || 0) + 1);
-      (u.teachSkills || []).forEach(s => teachSkillCounts[s] = (teachSkillCounts[s] || 0) + 1);
-    });
-
-    const topLearnSkills = Object.entries(learnSkillCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
-    const topTeachSkills = Object.entries(teachSkillCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
-
-    res.json({
-      ok: true,
-      stats: {
-        totalUsers,
-        activeUsers,
-        bannedUsers,
-        totalSessions,
-        totalMatches,
-        totalMessages,
-        topLearnSkills,
-        topTeachSkills,
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: "خطأ في جلب إحصائيات الإدارة" });
-  }
-});
-
-// 2. Admin Users Directory Endpoint
-app.get("/api/admin/users", adminMiddleware, async (req, res) => {
-  try {
-    const { q, role, status, limit = 100, skip = 0 } = req.query;
-    const filter = {};
-
-    if (q) {
-      const regex = new RegExp(q.trim(), "i");
-      filter.$or = [
-        { username1: regex },
-        { username2: regex },
-        { email: regex },
-        { learnSkills: regex },
-        { teachSkills: regex }
-      ];
-    }
-    if (role) filter.role = role;
-    if (status) filter.status = status;
-
-    const users = await User.find(filter)
-      .select("-password")
-      .sort({ createdAt: -1 })
-      .skip(Number(skip))
-      .limit(Number(limit))
-      .lean();
-
-    const total = await User.countDocuments(filter);
-    res.json({ ok: true, users, total });
-  } catch (err) {
-    res.status(500).json({ error: "خطأ في جلب قائمة المستخدمين" });
-  }
-});
-
-// 3. Admin Change User Status / Role
-app.put("/api/admin/users/:id/status", adminMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, role, banReason } = req.body;
-
-    const update = {};
-    if (status) update.status = status;
-    if (role) update.role = role;
-    if (banReason !== undefined) update.banReason = banReason;
-
-    const updatedUser = await User.findByIdAndUpdate(id, update, { new: true }).select("-password").lean();
-    if (!updatedUser) return res.status(404).json({ error: "المستخدم غير موجود" });
-
-    res.json({ ok: true, user: updatedUser });
-  } catch (err) {
-    res.status(500).json({ error: "خطأ في تحديث حالة المستخدم" });
-  }
-});
-
-// 4. Admin Messages Inspection Endpoint
-app.get("/api/admin/messages", adminMiddleware, async (req, res) => {
-  try {
-    const limit = Number(req.query.limit || 50);
-    const messages = await Message.find()
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean();
-
-    res.json({ ok: true, messages });
-  } catch (err) {
-    res.status(500).json({ error: "خطأ في جلب الرسائل" });
-  }
-});
-
-// 5. Admin Reports Endpoint
-app.get("/api/admin/reports", adminMiddleware, async (req, res) => {
-  try {
-    const reports = await Report.find()
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .lean();
-
-    res.json({ ok: true, reports });
-  } catch (err) {
-    res.status(500).json({ error: "خطأ في جلب البلاغات" });
-  }
-});
 
 // ═══════════════════════════════════════════════
 // API VERSION HEADERS
@@ -4401,13 +4347,21 @@ app.use("/api/", (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════
-// MongoDB Connection & Server Start
+// 404 HANDLER FOR UNMATCHED ROUTES
 // ═══════════════════════════════════════════════
+app.use((req, res) => {
+  if (req.path.startsWith("/api/")) {
+    return res.status(404).json({ error: "الطلب غير موجود (API Endpoint not found)" });
+  }
+  res.status(404).sendFile(path.join(__dirname, "../public/404.html"));
+});
+
 initRedisAdapterIfEnabled();
 // Start server first so Railway doesn't timeout
 server.listen(port, "0.0.0.0", () => {
   console.log(`🚀 Sharik server running on port ${port}`);
 });
+
 
 // الاتصال بـ MongoDB من متغيرات البيئة (.env) أو المضيف المحلي في حال عدم وجودها
 const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/sharik";

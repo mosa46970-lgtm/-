@@ -117,6 +117,11 @@ const userSchema = new Schema(
     gamifyPoints: { type: Number, default: 0 },
     gamifyLevel: { type: String, default: "عضو جديد" },
 
+    // 🚀 Onboarding & Web Push
+    onboarded: { type: Boolean, default: false },
+    pushSubscription: { type: Schema.Types.Mixed, default: null },
+
+
     // 🔔 Notifications System
     notifications: [
       {
